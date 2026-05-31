@@ -265,6 +265,53 @@ class RedisSemanticCache:
             logger.warning("Redis invalidate_user_responses error: %s", exc)
         return deleted
 
+    def clear_all_caches(self) -> dict:
+        """
+        Clear ALL Redis cache entries (responses, profiles, history, viz state).
+        
+        Returns a dict with counts of deleted keys by type.
+        Use with caution - this is a full cache flush.
+        """
+        if not self._available:
+            return {"error": "Redis not available"}
+        
+        result = {
+            "responses": 0,
+            "profiles": 0,
+            "history": 0,
+            "viz_state": 0,
+            "total": 0
+        }
+        
+        try:
+            # Clear response cache
+            for key in self._client.scan_iter("resp:*", count=500):
+                self._client.delete(key)
+                result["responses"] += 1
+            
+            # Clear user profiles
+            for key in self._client.scan_iter("user:*:profile", count=500):
+                self._client.delete(key)
+                result["profiles"] += 1
+            
+            # Clear query history
+            for key in self._client.scan_iter("user:*:query_history", count=500):
+                self._client.delete(key)
+                result["history"] += 1
+            
+            # Clear viz state
+            for key in self._client.scan_iter("user:*:viz_state", count=500):
+                self._client.delete(key)
+                result["viz_state"] += 1
+            
+            result["total"] = sum(v for k, v in result.items() if k != "total")
+            logger.info("Cleared all Redis caches: %s", result)
+            return result
+            
+        except Exception as exc:
+            logger.error("clear_all_caches failed: %s", exc)
+            return {"error": str(exc)}
+
     def cache_stats(self) -> dict:
         """Return basic cache statistics (useful for the /health endpoint)."""
         if not self._available:

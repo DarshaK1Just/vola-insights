@@ -154,6 +154,122 @@ def cache_stats():
     return _pipeline.cache_info
 
 
+@app.post("/cache/clear", tags=["ops"])
+def clear_cache(user_id: str = None, cache_type: str = "all"):
+    """
+    Clear Redis cache entries.
+    
+    Parameters:
+    - user_id: Optional. If provided, clears only that user's cached responses
+    - cache_type: "all" (default), "responses", "profiles", "history", "viz"
+    
+    Returns the number of keys deleted.
+    
+    Examples:
+    - POST /cache/clear                           → Clear all caches
+    - POST /cache/clear?user_id=usr_a1b2c3d4      → Clear user's responses
+    - POST /cache/clear?cache_type=responses      → Clear only response cache
+    """
+    if not _pipeline:
+        raise HTTPException(503, "Pipeline not ready")
+    
+    from src.redis_cache import RedisSemanticCache
+    cache = _pipeline._cache
+    
+    if not isinstance(cache, RedisSemanticCache) or not cache.available:
+        return {
+            "status": "skipped",
+            "message": "Redis cache not available (using diskcache fallback)",
+            "deleted": 0
+        }
+    
+    try:
+        if user_id:
+            # Clear responses for specific user
+            deleted = cache.invalidate_user_responses(user_id)
+            return {
+                "status": "success",
+                "message": f"Cleared cache for user {user_id}",
+                "deleted": deleted,
+                "cache_type": "user_responses"
+            }
+        
+        elif cache_type == "all":
+            # Clear ALL caches
+            result = cache.clear_all_caches()
+            if "error" in result:
+                raise HTTPException(500, result["error"])
+            return {
+                "status": "success",
+                "message": "Cleared all caches",
+                "deleted": result["total"],
+                "breakdown": {
+                    "responses": result["responses"],
+                    "profiles": result["profiles"],
+                    "history": result["history"],
+                    "viz_state": result["viz_state"]
+                }
+            }
+        
+        elif cache_type == "responses":
+            # Clear only response cache
+            deleted = 0
+            for key in cache._client.scan_iter("resp:*", count=500):
+                cache._client.delete(key)
+                deleted += 1
+            return {
+                "status": "success",
+                "message": "Cleared response cache",
+                "deleted": deleted,
+                "cache_type": "responses"
+            }
+        
+        elif cache_type == "profiles":
+            deleted = 0
+            for key in cache._client.scan_iter("user:*:profile", count=500):
+                cache._client.delete(key)
+                deleted += 1
+            return {
+                "status": "success",
+                "message": "Cleared user profiles",
+                "deleted": deleted,
+                "cache_type": "profiles"
+            }
+        
+        elif cache_type == "history":
+            deleted = 0
+            for key in cache._client.scan_iter("user:*:query_history", count=500):
+                cache._client.delete(key)
+                deleted += 1
+            return {
+                "status": "success",
+                "message": "Cleared query history",
+                "deleted": deleted,
+                "cache_type": "history"
+            }
+        
+        elif cache_type == "viz":
+            deleted = 0
+            for key in cache._client.scan_iter("user:*:viz_state", count=500):
+                cache._client.delete(key)
+                deleted += 1
+            return {
+                "status": "success",
+                "message": "Cleared viz state",
+                "deleted": deleted,
+                "cache_type": "viz"
+            }
+        
+        else:
+            raise HTTPException(400, f"Invalid cache_type: {cache_type}. Use: all, responses, profiles, history, viz")
+            
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Cache clear failed: %s", exc)
+        raise HTTPException(500, f"Cache clear failed: {exc}")
+
+
 @app.get("/users", tags=["data"])
 def get_users():
     if _pipeline is None:
