@@ -1,0 +1,32 @@
+# ── Core data ─────────────────────────────────────────────────────────────────
+pandas>=2.0.0
+openpyxl>=3.1.0        # Excel file loading via pandas
+numpy>=1.24.0
+diskcache>=5.6.0       # Persistent user-state KV store (profile, history, viz_state)
+redis>=5.0.0           # Semantic response cache — optional, falls back to diskcache
+
+# ── Visualizations ────────────────────────────────────────────────────────────
+matplotlib>=3.7.0      # Chart generation (trend, donut, income/expense, dynamic)
+
+# ── LLM / Agentic pipeline ────────────────────────────────────────────────────
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-openai>=0.2.0   # ChatOpenAI → OpenRouter (free-tier LLM + tool calling)
+langchain-core>=0.3.0
+
+# ── Guardrails ────────────────────────────────────────────────────────────────
+# Install from GitHub (not PyPI):
+#   pip install "git+https://github.com/guardrails-ai/guardrails.git"
+guardrails-ai @ git+https://github.com/guardrails-ai/guardrails.git
+
+# ── API & transport ───────────────────────────────────────────────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+httpx>=0.25.0          # Async HTTP client (frontend → API)
+pydantic>=2.0.0
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+streamlit>=1.32.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0

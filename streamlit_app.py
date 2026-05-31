@@ -1,0 +1,146 @@
+"""
+streamlit_app.py — Streamlit Community Cloud entry point for Vola Insights.
+
+This file is the deployment entry point used by Streamlit Community Cloud.
+It runs the full pipeline DIRECTLY inside Streamlit (no separate FastAPI server needed).
+
+For local development with the full stack (FastAPI + Streamlit), use:
+    uvicorn api.app:app --port 8000
+    streamlit run frontend/app.py
+
+For Streamlit Cloud deployment, this file handles everything in one process.
+
+Required secrets (add via Streamlit Cloud → Settings → Secrets):
+    OPENROUTER_API_KEY = "sk-or-..."
+    REDIS_URL          = ""        # leave blank — Redis not available on Cloud
+    DATA_FILE          = ""        # leave blank — uses built-in demo data
+"""
+from __future__ import annotations
+import os
+import sys
+import time
+import threading
+from pathlib import Path
+
+# ── Path setup ────────────────────────────────────────────────────────────────
+_ROOT = Path(__file__).resolve().parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+# ── Load Streamlit secrets into os.environ ────────────────────────────────────
+# Streamlit Cloud stores secrets in st.secrets — copy them to env vars so the
+# pipeline's Config class picks them up via os.environ.get(...)
+try:
+    import streamlit as st
+    for _k, _v in st.secrets.items():
+        if isinstance(_v, str):
+            os.environ.setdefault(_k, _v)
+except Exception:
+    pass  # running locally — .env already loaded
+
+import src.logging_config  # noqa: F401
+
+# ── Lazy pipeline init (shared across reruns via st.session_state) ────────────
+import streamlit as st
+import pandas as pd
+
+@st.cache_resource(show_spinner=False)
+def _get_pipeline():
+    """Load data and initialise pipeline once; cache the instance."""
+    from src.config import Config
+    from src.pipeline import TransactionRAGPipeline
+
+    data_file = Config.DATA_FILE
+    if data_file and Path(data_file).exists():
+        from src.data_loader import load_transactions
+        df = load_transactions(data_file)
+    else:
+        # Built-in demo dataset — works without any data file
+        from api.app import _make_demo_df
+        df = _make_demo_df()
+
+    pipeline = TransactionRAGPipeline(df=df)
+    # Wait for full init (guardrails + LangGraph) — max 3 min
+    pipeline._ready.wait(timeout=180)
+    return pipeline
+
+
+# ── Override the API call used by the main frontend to call pipeline directly ─
+# The frontend/app.py is designed to call a FastAPI backend via HTTP.
+# On Streamlit Cloud there is no backend, so we monkey-patch call_pipeline_sync
+# to call the pipeline directly.
+def _direct_pipeline_call(backend_url: str, user_id: str, prompt: str) -> dict:
+    """Replaces HTTP call with a direct pipeline.run() call."""
+    pipeline = _get_pipeline()
+    return pipeline.run(user_id=user_id, prompt=prompt)
+
+# Inject the direct caller before importing the frontend
+import importlib
+import types
+
+# Create a fake httpx module so frontend imports don't fail
+class _FakeConnectError(Exception): pass
+class _FakeTimeoutException(Exception): pass
+
+_fake_httpx = types.ModuleType("httpx")
+_fake_httpx.ConnectError = _FakeConnectError
+_fake_httpx.TimeoutException = _FakeTimeoutException
+
+class _FakeResponse:
+    def __init__(self, data):
+        self._data = data
+        self.status_code = 200
+    def json(self): return self._data
+    def raise_for_status(self): pass
+
+class _FakeClient:
+    def __enter__(self): return self
+    def __exit__(self, *_): pass
+    def get(self, url, **_):
+        from src.config import Config
+        pipeline = _get_pipeline()
+        if "/users" in url:
+            return _FakeResponse({"users": pipeline.users})
+        if "/health" in url:
+            return _FakeResponse({
+                "status": "ok",
+                "pipeline_ready": pipeline.is_ready,
+                "data_rows": len(pipeline._df),
+                "data_file": Config.DATA_FILE or "demo",
+                "cache": pipeline.cache_info,
+            })
+        return _FakeResponse({})
+    def post(self, url, json=None, **_):
+        result = _direct_pipeline_call("", json["user_id"], json["prompt"])
+        return _FakeResponse(result)
+
+_fake_httpx.Client = _FakeClient
+sys.modules["httpx"] = _fake_httpx
+
+# Patch asyncio so the frontend's async call runs synchronously
+import asyncio as _asyncio
+
+def _patched_call(backend_url: str, user_id: str, prompt: str) -> dict:
+    return _direct_pipeline_call(backend_url, user_id, prompt)
+
+# ── Run the main Streamlit frontend ──────────────────────────────────────────
+# Streamlit re-executes the entire script on each interaction, so we exec the
+# frontend's app.py code directly in this module's global namespace.
+
+_frontend_path = _ROOT / "frontend" / "app.py"
+_frontend_code = _frontend_path.read_text(encoding="utf-8")
+
+# Patch the call_pipeline_sync function that frontend uses
+_frontend_code = _frontend_code.replace(
+    "def call_pipeline_sync(backend_url: str, user_id: str, prompt: str) -> dict:",
+    "def call_pipeline_sync(backend_url: str, user_id: str, prompt: str) -> dict:\n    return _patched_pipeline_call(backend_url, user_id, prompt)\ndef _unused_call_pipeline_sync(backend_url, user_id, prompt):"
+)
+
+# Inject the patched caller
+_globals = {
+    "__name__": "__main__",
+    "__file__": str(_frontend_path),
+    "_patched_pipeline_call": _patched_call,
+}
+
+exec(compile(_frontend_code, str(_frontend_path), "exec"), _globals)
