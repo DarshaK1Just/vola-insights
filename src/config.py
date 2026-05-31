@@ -51,11 +51,13 @@ class Config:
 
     # ── Paths ─────────────────────────────────────────────────────────────────
     _data_file_env = os.environ.get("DATA_FILE", "").strip()
-    DATA_FILE: str = (
-        _data_file_env
-        if _data_file_env
-        else str(_PROJECT_ROOT.parent / "assessment_transaction_data.xlsx")
-    )
+    # Priority: env var > project root > parent directory
+    if _data_file_env:
+        DATA_FILE: str = _data_file_env
+    elif Path(_PROJECT_ROOT / "assessment_transaction_data.xlsx").exists():
+        DATA_FILE: str = str(_PROJECT_ROOT / "assessment_transaction_data.xlsx")
+    else:
+        DATA_FILE: str = str(_PROJECT_ROOT.parent / "assessment_transaction_data.xlsx")
 
     CACHE_DIR: str = str(_PROJECT_ROOT / "cache_store")
     OUTPUT_DIR: str = str(_PROJECT_ROOT / "output")
