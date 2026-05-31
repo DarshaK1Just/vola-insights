@@ -892,9 +892,24 @@ else:
                                 unsafe_allow_html=True,
                             )
                         else:
-                            st.caption(f"Chart unavailable: {filename}")
-                    except Exception:
-                        st.caption(f"Could not load: {filename}")
+                            # Chart file not found - likely from cached response with stale paths
+                            st.markdown(
+                                f'<div style="background:var(--bg2);border:1px solid var(--border);'
+                                f'border-radius:12px;padding:16px;margin:12px 0 12px 52px;text-align:center;">'
+                                f'<div style="color:var(--t3);font-size:13px;">📊 Chart unavailable</div>'
+                                f'<div style="color:var(--t3);font-size:11px;margin-top:4px;">'
+                                f'This may be a cached response. Try asking again for a fresh chart.</div>'
+                                f'</div>',
+                                unsafe_allow_html=True,
+                            )
+                    except Exception as e:
+                        st.markdown(
+                            f'<div style="background:var(--bg2);border:1px solid var(--border);'
+                            f'border-radius:12px;padding:16px;margin:12px 0 12px 52px;text-align:center;">'
+                            f'<div style="color:var(--t3);font-size:13px;">⚠️ Could not load chart</div>'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
 
         # ── STAGE 2: Dynamic CoT thinking block ────────────────────────────────
         if cur_uid and cur_uid in st.session_state.pending_queries:

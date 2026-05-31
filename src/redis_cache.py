@@ -203,6 +203,8 @@ class RedisSemanticCache:
 
         Normalises the prompt before hashing so minor variations (case,
         punctuation, extra spaces) share the same cache entry.
+        
+        Note: Cached responses exclude chart paths since chart files are ephemeral.
         """
         if not self._available:
             return None
@@ -215,6 +217,8 @@ class RedisSemanticCache:
             )
             # Mark this response as a cache hit
             data["cache_hit"] = True
+            # Ensure visualizations is an empty list (charts not cached)
+            data.setdefault("visualizations", [])
             return data
         return None
 
@@ -231,9 +235,14 @@ class RedisSemanticCache:
             k: v for k, v in response.items()
             if isinstance(v, (str, int, float, bool, list, dict, type(None)))
         }
+        # IMPORTANT: Remove chart paths from cached responses
+        # Chart files are ephemeral and may not exist when cache is retrieved
+        # Users should re-run queries to generate fresh charts
+        safe.pop("visualizations", None)
+        
         if self._rsetex(key, self._response_ttl, safe):
             logger.debug(
-                "Semantic cache SET user=%s prompt='%s...' ttl=%ds",
+                "Semantic cache SET user=%s prompt='%s...' ttl=%ds (charts excluded)",
                 user_id, prompt[:40], self._response_ttl,
             )
 
