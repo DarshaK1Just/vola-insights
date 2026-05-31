@@ -111,25 +111,36 @@ def _call_llm_with_fallback(
 
     for attempt, model in enumerate(fallback_models):
         if attempt > 0:
-            backoff = Config.BACKOFF_BASE ** attempt   # 2s, 4s
+            backoff = Config.BACKOFF_BASE ** attempt   # 1.5s, 2.25s
             logger.warning(
                 "%s: model %s failed, trying fallback %s in %.1fs (attempt %d/%d)",
                 label, fallback_models[attempt - 1], model, backoff, attempt + 1, len(fallback_models),
             )
             time.sleep(backoff)
+        else:
+            # Log the primary model attempt
+            logger.info("%s: attempting primary model %s", label, model)
 
+        call_start = time.time()
         try:
             llm = _make_llm(model)
             if tools:
                 llm = llm.bind_tools(tools)
             response = llm.invoke(messages)
+            call_duration = time.time() - call_start
             if attempt > 0:
-                logger.info("%s: fallback model %s succeeded", label, model)
+                logger.info("%s: fallback model %s succeeded (%.2fs)", label, model, call_duration)
+            else:
+                logger.info("%s: primary model %s succeeded (%.2fs)", label, model, call_duration)
             return response, model
         except Exception as exc:
             last_exc = exc
             exc_str = str(exc)
-            logger.warning("%s attempt %d/%d failed: %s", label, attempt + 1, len(fallback_models), exc_str[:120])
+            call_duration = time.time() - call_start
+            logger.warning(
+                "%s attempt %d/%d failed after %.2fs: %s", 
+                label, attempt + 1, len(fallback_models), call_duration, exc_str[:200]
+            )
             # Auth errors are permanent — no point trying other models
             if "401" in exc_str or "unauthorized" in exc_str.lower():
                 logger.error("%s: auth error, stopping fallback chain", label)

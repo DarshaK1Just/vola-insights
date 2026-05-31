@@ -12,6 +12,7 @@ class Config:
     OPENROUTER_API_KEY: str = os.environ.get("OPENROUTER_API_KEY", "")
 
     # ── LLM models (OpenRouter free tier) ────────────────────────────────────
+    # RECOMMENDED: Use paid models for production (e.g., "openai/gpt-4o-mini", "anthropic/claude-3-haiku")
     MODEL_PRIMARY   = "google/gemma-4-31b-it:free"
     MODEL_FALLBACK_1 = "openai/gpt-oss-120b:free"
     MODEL_FALLBACK_2 = "meta-llama/llama-3.1-8b-instruct:free"
@@ -19,8 +20,8 @@ class Config:
 
     # ── Retry / timeout ───────────────────────────────────────────────────────
     MAX_RETRIES = 3
-    BACKOFF_BASE = 2.0
-    TIMEOUT_SECONDS = 60
+    BACKOFF_BASE = 1.5  # Reduced from 2.0 → faster retries (1.5s, 2.25s instead of 2s, 4s)
+    TIMEOUT_SECONDS = 30  # Reduced from 60 → fail faster on hung requests
 
     # ── Circuit breaker ───────────────────────────────────────────────────────
     CIRCUIT_BREAKER_THRESHOLD = 3
