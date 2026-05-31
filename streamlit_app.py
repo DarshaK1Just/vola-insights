@@ -82,16 +82,32 @@ def _direct_pipeline_call(backend_url: str, user_id: str, prompt: str) -> dict:
     return pipeline.run(user_id=user_id, prompt=prompt)
 
 # Inject the direct caller before importing the frontend
-import importlib
 import types
 
-# Create a fake httpx module so frontend imports don't fail
-class _FakeConnectError(Exception): pass
-class _FakeTimeoutException(Exception): pass
+# Keep the real httpx in sys.modules for pipeline / LangChain / OpenRouter.
+# Only the Streamlit frontend gets a local shim (injected via exec globals).
+import httpx as _real_httpx  # noqa: F401
+
+
+class _FakeConnectError(Exception):
+    pass
+
+
+class _FakeTimeoutException(Exception):
+    pass
+
+
+class _FakeHTTPStatusError(Exception):
+    def __init__(self, message: str, *, response=None):
+        super().__init__(message)
+        self.response = response
+
 
 _fake_httpx = types.ModuleType("httpx")
 _fake_httpx.ConnectError = _FakeConnectError
 _fake_httpx.TimeoutException = _FakeTimeoutException
+_fake_httpx.HTTPStatusError = _FakeHTTPStatusError
+_fake_httpx.RequestError = _FakeConnectError
 
 class _FakeResponse:
     def __init__(self, data=None, *, content: bytes | None = None, status_code: int = 200):
@@ -108,7 +124,10 @@ class _FakeResponse:
 
     def raise_for_status(self):
         if self.status_code >= 400:
-            raise _FakeConnectError(f"HTTP {self.status_code}")
+            raise _FakeHTTPStatusError(
+                f"HTTP {self.status_code}",
+                response=self,
+            )
 
 
 def _fake_http_get(url: str, **_kwargs) -> _FakeResponse:
@@ -180,8 +199,7 @@ _fake_httpx.Client = _FakeClient
 _fake_httpx.AsyncClient = _FakeAsyncClient
 _fake_httpx.get = _fake_http_get
 _fake_httpx.post = _fake_http_post
-_fake_httpx.Timeout = lambda *a, **k: None  # noqa: E731 — stub for frontend imports
-sys.modules["httpx"] = _fake_httpx
+_fake_httpx.Timeout = _real_httpx.Timeout
 
 # Patch asyncio so the frontend's async call runs synchronously
 import asyncio as _asyncio
@@ -201,6 +219,8 @@ _frontend_code = _frontend_code.replace(
     "def call_pipeline_sync(backend_url: str, user_id: str, prompt: str) -> dict:",
     "def call_pipeline_sync(backend_url: str, user_id: str, prompt: str) -> dict:\n    return _patched_pipeline_call(backend_url, user_id, prompt)\ndef _unused_call_pipeline_sync(backend_url, user_id, prompt):"
 )
+# Frontend must use the shim; do not import real httpx (pipeline needs the real module).
+_frontend_code = _frontend_code.replace("import httpx\n", "# httpx provided by embedded entry point\n")
 
 # Inject the patched caller
 _globals = {
@@ -208,6 +228,7 @@ _globals = {
     "__file__": str(_frontend_path),
     "_patched_pipeline_call": _patched_call,
     "_VOLA_EXEC_FROM_EMBED": True,
+    "httpx": _fake_httpx,
 }
 
 exec(compile(_frontend_code, str(_frontend_path), "exec"), _globals)
