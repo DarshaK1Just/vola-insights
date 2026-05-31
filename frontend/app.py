@@ -20,6 +20,32 @@ import streamlit as st
 
 BACKEND_URL = os.environ.get("API_URL", "http://localhost:8000").rstrip("/")
 
+
+def _bootstrap_embedded_if_needed() -> None:
+    """On Streamlit Cloud there is no localhost:8000 API — use streamlit_app.py."""
+    if globals().get("_VOLA_EXEC_FROM_EMBED"):
+        return
+    if os.environ.get("VOLA_EMBEDDED") == "1":
+        return
+    custom_api = os.environ.get("API_URL", "").strip()
+    if custom_api and custom_api.rstrip("/") != "http://localhost:8000":
+        return
+    try:
+        httpx.get(f"{BACKEND_URL}/health", timeout=1.5)
+        return
+    except Exception:
+        pass
+    entry = _PROJECT_ROOT / "streamlit_app.py"
+    if not entry.exists():
+        return
+    os.environ["VOLA_EMBEDDED"] = "1"
+    _code = entry.read_text(encoding="utf-8")
+    exec(compile(_code, str(entry), "exec"), {"__name__": "__main__", "__file__": str(entry)})
+    st.stop()
+
+
+_bootstrap_embedded_if_needed()
+
 # ── Async API call with connection pooling (faster than requests) ───────────────
 async def _async_pipeline_call(backend_url: str, user_id: str, prompt: str) -> dict:
     """Single async POST to the pipeline endpoint using httpx (HTTP/1.1 pooled)."""

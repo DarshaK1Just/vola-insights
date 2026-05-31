@@ -27,6 +27,9 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+# Embedded mode: pipeline runs in-process (no separate FastAPI on port 8000)
+os.environ.setdefault("VOLA_EMBEDDED", "1")
+
 # ── Load Streamlit secrets into os.environ ────────────────────────────────────
 # Streamlit Cloud stores secrets in st.secrets — copy them to env vars so the
 # pipeline's Config class picks them up via os.environ.get(...)
@@ -35,6 +38,10 @@ try:
     for _k, _v in st.secrets.items():
         if isinstance(_v, str):
             os.environ.setdefault(_k, _v)
+        elif isinstance(_v, dict):
+            for _sk, _sv in _v.items():
+                if isinstance(_sv, str):
+                    os.environ.setdefault(_sk, _sv)
 except Exception:
     pass  # running locally — .env already loaded
 
@@ -87,15 +94,40 @@ _fake_httpx.ConnectError = _FakeConnectError
 _fake_httpx.TimeoutException = _FakeTimeoutException
 
 class _FakeResponse:
-    def __init__(self, data):
-        self._data = data
-        self.status_code = 200
-    def json(self): return self._data
-    def raise_for_status(self): pass
+    def __init__(self, data=None, *, content: bytes | None = None, status_code: int = 200):
+        self._data = data if data is not None else {}
+        self._content = content
+        self.status_code = status_code
+
+    def json(self):
+        return self._data
+
+    @property
+    def content(self) -> bytes:
+        return self._content or b""
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise _FakeConnectError(f"HTTP {self.status_code}")
+
+
+def _fake_http_get(url: str, **_kwargs) -> _FakeResponse:
+    with _FakeClient() as client:
+        return client.get(url, **_kwargs)
+
+
+def _fake_http_post(url: str, **kwargs) -> _FakeResponse:
+    with _FakeClient() as client:
+        return client.post(url, **kwargs)
+
 
 class _FakeClient:
-    def __enter__(self): return self
-    def __exit__(self, *_): pass
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        pass
+
     def get(self, url, **_):
         from src.config import Config
         pipeline = _get_pipeline()
@@ -109,12 +141,46 @@ class _FakeClient:
                 "data_file": Config.DATA_FILE or "demo",
                 "cache": pipeline.cache_info,
             })
+        if "/charts/" in url:
+            filename = url.rsplit("/charts/", 1)[-1].split("?")[0]
+            output_dir = Path(Config.OUTPUT_DIR).resolve()
+            chart_path = (output_dir / filename).resolve()
+            try:
+                chart_path.relative_to(output_dir)
+            except ValueError:
+                return _FakeResponse(status_code=404)
+            if chart_path.is_file():
+                return _FakeResponse(content=chart_path.read_bytes())
+            return _FakeResponse(status_code=404)
         return _FakeResponse({})
+
     def post(self, url, json=None, **_):
-        result = _direct_pipeline_call("", json["user_id"], json["prompt"])
+        payload = json or {}
+        result = _direct_pipeline_call("", payload.get("user_id", ""), payload.get("prompt", ""))
         return _FakeResponse(result)
 
+
+class _FakeAsyncClient:
+    def __init__(self, **_kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        pass
+
+    async def post(self, url, json=None, **_):
+        payload = json or {}
+        result = _direct_pipeline_call("", payload.get("user_id", ""), payload.get("prompt", ""))
+        return _FakeResponse(result)
+
+
 _fake_httpx.Client = _FakeClient
+_fake_httpx.AsyncClient = _FakeAsyncClient
+_fake_httpx.get = _fake_http_get
+_fake_httpx.post = _fake_http_post
+_fake_httpx.Timeout = lambda *a, **k: None  # noqa: E731 — stub for frontend imports
 sys.modules["httpx"] = _fake_httpx
 
 # Patch asyncio so the frontend's async call runs synchronously
@@ -141,6 +207,7 @@ _globals = {
     "__name__": "__main__",
     "__file__": str(_frontend_path),
     "_patched_pipeline_call": _patched_call,
+    "_VOLA_EXEC_FROM_EMBED": True,
 }
 
 exec(compile(_frontend_code, str(_frontend_path), "exec"), _globals)
