@@ -7,6 +7,11 @@ structured tool use to produce a grounded response, and optionally generates
 Matplotlib visualizations — all wrapped in multi-layer input/output guardrails.
 
 ---
+<img width="1919" height="932" alt="image" src="https://github.com/user-attachments/assets/b77e3df2-cce3-4a95-a09e-eb577b38056a" />
+
+<img width="1919" height="929" alt="image" src="https://github.com/user-attachments/assets/fe783036-c997-4d3c-b134-a8ab765503e8" />
+
+
 
 ## Architecture Decision Record
 
