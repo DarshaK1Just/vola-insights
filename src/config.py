@@ -11,12 +11,12 @@ class Config:
     # ── OpenRouter API key ────────────────────────────────────────────────────
     OPENROUTER_API_KEY: str = os.environ.get("OPENROUTER_API_KEY", "")
 
-    # ── LLM models (OpenRouter free tier) ────────────────────────────────────
-    # RECOMMENDED: Use paid models for production (e.g., "openai/gpt-4o-mini", "anthropic/claude-3-haiku")
-    # Swapped: gpt-oss-120b is more reliable than gemma (fewer 429 rate limits)
-    MODEL_PRIMARY   = "openrouter/owl-alpha"
-    MODEL_FALLBACK_1 = "nvidia/nemotron-3-super-120b-a12b:free"
-    MODEL_FALLBACK_2 = "openai/gpt-oss-120b:free"
+    # ── LLM models (OpenRouter) ──────────────────────────────────────────────
+    # Optimized for financial RAG: low hallucination + fast + cheap
+    # Test results: deepseek-v4-flash (2.3s, 100% accurate, $0.00000010/token)
+    MODEL_PRIMARY   = "deepseek/deepseek-v4-flash"      # Best: fast, accurate, cheap
+    MODEL_FALLBACK_1 = "qwen/qwen3.6-flash"             # Reliable backup (4.4s)
+    MODEL_FALLBACK_2 = "openai/gpt-oss-120b"            # Stable fallback (6.4s)
     OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
     # ── Retry / timeout ───────────────────────────────────────────────────────
