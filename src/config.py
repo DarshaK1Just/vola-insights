@@ -12,11 +12,11 @@ class Config:
     OPENROUTER_API_KEY: str = os.environ.get("OPENROUTER_API_KEY", "")
 
     # ── LLM models (OpenRouter) ──────────────────────────────────────────────
-    # Optimized for financial RAG: low hallucination + fast + cheap
-    # Test results: deepseek-v4-flash (2.3s, 100% accurate, $0.00000010/token)
-    MODEL_PRIMARY   = "deepseek/deepseek-v4-flash"      # Best: fast, accurate, cheap
-    MODEL_FALLBACK_1 = "qwen/qwen3.6-flash"             # Reliable backup (4.4s)
-    MODEL_FALLBACK_2 = "openai/gpt-oss-120b"            # Stable fallback (6.4s)
+    # Optimized for financial RAG: low hallucination + fast + cheap + GOOD TOOL CALLING
+    # DeepSeek V4 has issues with tool calling - switching to models with proven tool support
+    MODEL_PRIMARY   = "qwen/qwen3.6-flash"              # Best tool calling support
+    MODEL_FALLBACK_1 = "deepseek/deepseek-v4-flash"     # Fast but tool calling issues
+    MODEL_FALLBACK_2 = "openai/gpt-oss-120b"            # Stable fallback
     OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
     # ── Retry / timeout ───────────────────────────────────────────────────────

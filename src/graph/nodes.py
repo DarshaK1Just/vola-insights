@@ -125,7 +125,8 @@ def _call_llm_with_fallback(
         try:
             llm = _make_llm(model)
             if tools:
-                llm = llm.bind_tools(tools)
+                # Force tool calling with explicit tool_choice
+                llm = llm.bind_tools(tools, tool_choice="auto")
             response = llm.invoke(messages)
             call_duration = time.time() - call_start
             if attempt > 0:
