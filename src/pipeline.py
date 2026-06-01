@@ -225,11 +225,48 @@ class TransactionRAGPipeline:
         if isinstance(self._cache, RedisSemanticCache) and self._cache.available:
             cached = self._cache.get_response(user_id, prompt)
             if cached is not None:
+                # Cache hit - but regenerate charts for fresh visualizations
+                logger.info(
+                    "Semantic cache hit for user=%s - regenerating charts",
+                    user_id,
+                )
+                
+                # Get cached tool calls to regenerate charts
+                cached_tool_calls = cached.get("cached_tool_calls", [])
+                chart_paths = []
+                
+                if cached_tool_calls:
+                    from src.visualizations import execute_viz_tool, VIZ_TOOL_NAMES
+                    from src.data_loader import get_user_data
+                    
+                    # Get user data for chart generation
+                    user_df, user_name = get_user_data(self._df, user_id)
+                    
+                    # Regenerate only visualization tools
+                    for tc in cached_tool_calls:
+                        if tc.get("name") in VIZ_TOOL_NAMES:
+                            try:
+                                path = execute_viz_tool(
+                                    tc["name"], 
+                                    tc.get("args", {}), 
+                                    user_df, 
+                                    user_id, 
+                                    user_name
+                                )
+                                if path:
+                                    chart_paths.append(path)
+                                    logger.info("Regenerated chart: %s", path)
+                            except Exception as e:
+                                logger.warning("Failed to regenerate chart %s: %s", tc["name"], e)
+                
+                # Update cached response with fresh charts
+                cached["visualizations"] = chart_paths
                 cached["cache_hit"] = True
                 cached["latency_ms"] = round((time.time() - start) * 1000, 1)
+                
                 logger.info(
-                    "Semantic cache hit for user=%s (%.1f ms)",
-                    user_id, cached["latency_ms"],
+                    "Cache hit for user=%s with %d regenerated charts (%.1f ms)",
+                    user_id, len(chart_paths), cached["latency_ms"],
                 )
                 return cached
 
@@ -288,6 +325,7 @@ class TransactionRAGPipeline:
             "latency_ms": final_state.get("latency_ms", round((time.time() - start) * 1000, 1)),
             "guardrail_flags": final_state.get("guardrail_flags", []),
             "error": final_state.get("error"),
+            "tool_calls": final_state.get("tool_calls", []),  # Store for chart regeneration
         }
 
         if isinstance(self._cache, RedisSemanticCache) and self._cache.available:

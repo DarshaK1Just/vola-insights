@@ -223,27 +223,39 @@ class RedisSemanticCache:
         return None
 
     def set_response(self, user_id: str, prompt: str, response: dict) -> None:
-        """Cache a pipeline response. Skips if the response is an error/block."""
+        """Cache a pipeline response with tool calls for chart regeneration."""
         if not self._available:
             return
         if not _cacheable(response):
             logger.debug("Skipping cache for blocked/error response (user=%s)", user_id)
             return
         key = _response_key(user_id, prompt)
-        # Strip non-JSON-serialisable fields (e.g. DataFrames) before caching
+        
+        # Strip non-JSON-serialisable fields before caching
         safe = {
             k: v for k, v in response.items()
             if isinstance(v, (str, int, float, bool, list, dict, type(None)))
         }
-        # IMPORTANT: Remove chart paths from cached responses
-        # Chart files are ephemeral and may not exist when cache is retrieved
-        # Users should re-run queries to generate fresh charts
+        
+        # Store tool calls for chart regeneration (keep only viz tool calls)
+        if "tool_calls" in safe:
+            from src.visualizations import VIZ_TOOL_NAMES
+            viz_tool_calls = [
+                {"name": tc["name"], "args": tc.get("args", {})}
+                for tc in safe["tool_calls"]
+                if tc.get("name") in VIZ_TOOL_NAMES
+            ]
+            safe["cached_tool_calls"] = viz_tool_calls
+            # Remove full tool_calls (contains results, too large)
+            safe.pop("tool_calls", None)
+        
+        # Remove chart paths (will be regenerated on cache hit)
         safe.pop("visualizations", None)
         
         if self._rsetex(key, self._response_ttl, safe):
             logger.debug(
-                "Semantic cache SET user=%s prompt='%s...' ttl=%ds (charts excluded)",
-                user_id, prompt[:40], self._response_ttl,
+                "Semantic cache SET user=%s prompt='%s...' ttl=%ds (%d viz tools cached)",
+                user_id, prompt[:40], self._response_ttl, len(safe.get("cached_tool_calls", [])),
             )
 
     def invalidate_user_responses(self, user_id: str) -> int:
