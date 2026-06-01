@@ -307,14 +307,17 @@ def make_llm_reason_node(cache: UserCacheManager):
     CHART_SELECTION_GUIDE = """\
 AUTONOMOUS CHART SELECTION — follow these rules exactly:
 
-RULE 1 — "full financial report" / "give me a full report" / "full overview":
-  MUST call ALL FOUR charts:
-    plot_monthly_spending_trend(user_id, months=12)
-    plot_category_breakdown(user_id, period="last_3_months", top_n=7)
-    plot_income_vs_expense(user_id, months=6, show_net_line=True)
-    generate_dynamic_chart(user_id, chart_type="bar", title="Monthly Savings Rate",
-                           data_source="savings_rate", y_label="Savings Rate (%)")
+RULE 1 — "full financial report" / "give me a full report" / "full overview" / "complete financial picture":
+  ⚠️ CRITICAL: You MUST call ALL FOUR charts (no exceptions):
+    1. plot_monthly_spending_trend(user_id, months=12)
+    2. plot_category_breakdown(user_id, period="last_3_months", top_n=7)
+    3. plot_income_vs_expense(user_id, months=6, show_net_line=True)
+    4. generate_dynamic_chart(user_id, chart_type="bar", title="Monthly Savings Rate",
+                              data_source="savings_rate", y_label="Savings Rate (%)")
   ALSO call get_monthly_trend(months=12) and get_spending_by_category(months=3) for the text summary.
+  
+  ⚠️ IMPORTANT: A "full report" means showing the COMPLETE financial picture with ALL 4 charts.
+  If you only call 1-2 charts, you are NOT following the requirement.
 
 RULE 2 — "how am I doing financially?" / "financial health":
   call plot_income_vs_expense(user_id, months=6) + plot_category_breakdown(user_id)
@@ -327,7 +330,6 @@ RULE 3 — "spending trend" / "how has spending changed" / "monthly pattern":
 RULE 4 — "where is my money going" / "spending categories" / "what do I spend most on":
   call plot_category_breakdown(user_id, period="last_3_months")
   call get_spending_by_category(months=3) for the text.
-
 RULE 5 — "am I saving" / "income vs expenses" / "savings":
   call plot_income_vs_expense(user_id, months=6, show_net_line=True)
   call get_income_analysis(months=6) for the text.
@@ -400,10 +402,11 @@ generate_dynamic_chart data_source quick-reference:
             f"Today is {today_str}.\n\n"
             "CRITICAL RULES:\n"
             "1. ONLY discuss THIS user's own data. Never reference other users.\n"
-            "2. Call analysis tools to get accurate numerical data BEFORE answering.\n"
-            "3. Call visualization tools to generate charts when they add insight.\n"
-            "4. If data is insufficient for a claim, clearly say so.\n"
-            "5. NEGATIVE amounts = income received. POSITIVE amounts = money spent.\n\n"
+            "2. ALWAYS call analysis tools to get accurate numerical data BEFORE answering.\n"
+            "3. ALWAYS call visualization tools to generate charts - charts are REQUIRED, not optional.\n"
+            "4. When user asks for a 'full report', you MUST call ALL 4 charts (see RULE 1 below).\n"
+            "5. If data is insufficient for a claim, clearly say so.\n"
+            "6. NEGATIVE amounts = income received. POSITIVE amounts = money spent.\n\n"
             f"{SCHEMA_DESCRIPTION}\n\n"
             f"USER FINANCIAL PROFILE:\n{profile_text}"
             f"{few_shots}"
